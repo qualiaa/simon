@@ -132,8 +132,6 @@ while read -r function btime atime sensitive args; do
 done<<<"$RULES"
 
 while :; do
-    stderr $timer
-
     while read -r function btime atime sensitive args; do
         if on_ac_power; then
             timeout=$atime
@@ -147,7 +145,7 @@ while :; do
             [Xx]) continue ;;
             0) [[ "$idle" == "false" && "$idle" != "$idle_last" ]] || continue ;&
             *)
-                if [[ "$timer" -eq "$timeout" && "$timeout" -ne 1 ]]; then
+                if [[ "$timer" -eq "$timeout" ]]; then
                     if [ "${sensitive,,}" == "false" ] || safe_to_sleep $timeout
                     then
                         stderr "At time $timer: executing " $function $args
