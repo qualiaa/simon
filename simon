@@ -1,59 +1,163 @@
 #!/bin/bash
+#
+# program: system_idle_monitor
+# author: jamie bayne
+# email: jtbayne@gmail.com
+# date: Sun 10 Apr 23:27:21 2016
+#
+# description:
+#
+#   This is a small program meant to run in the background, to trigger an action
+#   based on whether the laptop is on AC or battery power.
+#
+#   Currently only supports one action with different times for AC/battery, but
+#   I hope to extend it to support a list of actions with times for both power
+#   modes. This could hypothetically look like
+#
+#       function_name	bat_time	ac_time	sensitive
+#       darken_screen	60			600		0
+#       turn_off_screen	90			600		0
+#       suspend			0			300		1
+#       hibernate		300			0		1
+#
+#   with complex behaviour available by defining suspend as
+#
+#       function suspend() {
+#           do_something_fancy
+#       }
+#
+#   Run as a daemon, eg by putting it in your path and adding the line
+#
+#       system_idle_monitor&
+#
+#   to your .xinitrc
+#
+#   Uses sysfs/procfs where possible, so you will have to rig things up
+#   according to your system.
+#
+#   Depends on systemd for avoiding conflicts with other sleeps, but that
+#   shouldn't be too hard to swap out if your system is a unicorn and doesn't
+#   use systemd.
+#
+#   Should work out of the box for: my laptop :)
+#
+#   This program was based on a script posted by user rkwurth on the #! forums:
+#   http://crunchbang.org/forums/viewtopic.php?id=26447
 
-# Seconds of inactivity until sleep. 0 to disable sleep
-bat_time_out=300
-ac_time_out=0
-# Programs worth staying up for :)
-excluded_progs="shutdown mpg123"
 
-# The target may depend on your system. i8042 is mouse and keyboard on mine (Thinkpad x230)
-log=/proc/interrupts
-target=i8042
-
-check_ac()
-{ # Adjust or disable timeout if plugged in
-	on_ac_power
-	if [ $? == 0 ]; then
-		time_out=$ac_time_out
-	else
-		time_out=$bat_time_out
-	fi
+##########################
+## convenience definitions
+##########################
+set -eu
+readonly PROGNAME="$0"
+function stderr() {
+    echo $@ >&2
 }
 
-insomnia() 
-{ # If any special processes are running, echo true
-	for i in $excluded_progs ; do 
-		if [ `pgrep $i` ]; then 
-			echo true 
-			return 
-		fi 
-	done 
-}  
+##########################
+## settings
+##########################
+# change to modify behaviour once configured for your system
 
-check_insomnia()
-{ # If no special processes are running, echo false
-	insomnia && [ -z `insomnia` ] && echo false
+# seconds of inactivity until sleep. 0 to disable
+readonly BAT_TIMEOUT=30
+readonly AC_TIMEOUT=0
+
+# seconds between invocations
+readonly REFRESH_TIME=10
+
+# do not act if these processes exist
+readonly KEEPALIVE_PROGS="shutdown vlc"
+
+# what to do when timeout is reached
+# for pmutils use pm-suspend
+readonly TIMEOUT_ACTION="systemctl suspend"
+
+##########################
+## configuration
+##########################
+# change these to match your system configuration
+
+# sysfs file with ac status
+readonly SYSFS_AC_STATUS_FILE=/sys/class/power_supply/AC/online
+
+# value in SYSFS_AC_STATUS_FILE indicating we are plugged in
+readonly AC=1
+
+# the IO class may differ from system to system. you can check this by doing
+# `watch cat /proc/interrupts` and observing changes when you move keyboard and
+# mouse
+
+readonly PROCFS_INTERRUPT_FILE=/proc/interrupts
+readonly INTERRUPT_IO_CLASS="i8042"
+
+##########################
+## begin program
+##########################
+
+function timeout()
+{ # report timeout duration based on ac status
+    if on_ac_power; then
+        echo $AC_TIMEOUT
+    else
+        echo $BAT_TIMEOUT
+    fi
 }
 
-measure_activity() 
-{ # Do all the stuff...
-	count=$1
-	check_ac
-	# Do the actual checking for key/mouse interrupts
-	interrupts_start=`grep $target $log | awk '{ print $2 }'`
-	interrupts_stop=`sleep 1 && grep $target $log | awk '{ print $2 }'`
 
-	if [ "$interrupts_start" == "$interrupts_stop" ] ; then
-		((count++))
-		if [ $count -eq $time_out ] && [ `check_insomnia` == "false" ] ; then
-			/usr/sbin/pm-suspend
-			measure_activity 0
-		else
-			measure_activity $count
-		fi
-	else
-		measure_activity
-	fi
+## system status
+
+function on_ac_power()
+{ # report ac status
+    [ "$(cat $SYSFS_AC_STATUS_FILE)" == "$AC" ]
 }
 
-measure_activity 0 & # I've tacked an & at the end for daemon-like behavior
+function have_resumed()
+{ # report if the system woke up from sleep within timeout() seconds before now
+    journalctl --since="-$(timeout)s" | grep -q "System resumed"
+}
+
+function count_io_interrupts()
+{ # extract number of CPU io interrupts reported by linux kernel
+    grep "$INTERRUPT_IO_CLASS" "$PROCFS_INTERRUPT_FILE" | awk '{ print $2 }'
+}
+
+function safe_to_sleep()
+{ # if this function returns false, TIMEOUT_ACTION will not execute
+
+    # if any of the keep-alive progs are open
+    for proc_name in $KEEPALIVE_PROGS; do
+        if pgrep $proc_name; then
+            stderr process $proc_name running >&2
+            return 1
+        fi
+    done
+
+    # if our timeout is 0 seconds or we just woke up from sleep
+    if [[ $(timeout) -eq 0 ]] || have_resumed; then
+        stderr timeout is 0 >&2
+        return 1
+    fi
+}
+
+
+timer=0
+while :; do
+    # store
+    interrupts_start=$(count_io_interrupts)
+    sleep $REFRESH_TIME
+    interrupts_stop=$(count_io_interrupts)
+    stderr $timer
+
+    if [ "$interrupts_start" == "$interrupts_stop" ]; then
+        if [ $timer -ge $(timeout) ] && safe_to_sleep; then
+            stderr executing timeout action
+            $TIMEOUT_ACTION
+            timer=0
+        else
+            ((timer += REFRESH_TIME))
+        fi
+    else
+        timer=0
+    fi
+done
