@@ -4,7 +4,7 @@ This is a small program for managing laptop screen brightness and sleeps
 after some idle time, based on whether the laptop is on AC or battery power.
 
 Supports arbitrary actions with different times for AC/battery via a
-profile file the path to which is set in `$HOME/.config/simon/config.sh`
+profile file, the path to which is set in `$HOME/.config/simon/config.sh`
 
 `simon` uses `sysfs`/`procfs` where possible, but currently uses `systemd` for
 avoiding conflicts with other sleeps - this shouldn't be too hard to swap out if
@@ -56,8 +56,8 @@ An example profile file looks like this
                  defined in this file, or an existing system utility
 
 
-* `atime/btime`: Time in seconds before triggering for AC/battery. If `0`, do
-                 not trigger in this mode. If `1`, trigger when user returns
+* `atime/btime`: Time in seconds before triggering for AC/battery. If `x`, do
+                 not trigger in this mode. If `0`, trigger when user returns
                  from being idle
 
 * `sensitive`:   `true` if function does session management (logout, suspend,
@@ -73,5 +73,5 @@ treated as a comment.
 
 # Credit
 
-This program was based on a script posted by user rkwurth on the #! forums:
+This program was based on a script posted by user rkwurth on the `#!` forums:
 http://crunchbang.org/forums/viewtopic.php?id=26447

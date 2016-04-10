@@ -5,8 +5,8 @@
 #               utility
 #
 #
-# atime:        time in seconds before triggering for ac/battery. if 0, do not
-# btime         trigger in this mode. if 1, trigger when user returns from
+# atime:        time in seconds before triggering for ac/battery. if x, do not
+# btime         trigger in this mode. if 0, trigger when user returns from
 #               being idle
 #
 # sensitive:    true:  function does session management (logout, suspend,
@@ -19,10 +19,10 @@
 
 # function			btime	actime	sensitive	args...
 
-increase_backlight	0		1		false		100
-increase_backlight	1		0		false		75
-reduce_backlight	10		0		false		30
-reduce_backlight	30		0		false		10
-reduce_backlight	0		300		false		50
+increase_backlight	x		0		false		100
+increase_backlight	0		x		false		75
+reduce_backlight	10		x		false		30
+reduce_backlight	30		x		false		10
+reduce_backlight	x		300		false		50
 backlight_off		60		600		false
 suspend				120		600		true

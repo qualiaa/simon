@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # program: simon
-# version: 0.2
+# version: 0.3
 # author: jamie bayne
 # email: jtbayne@gmail.com
 # date: Sun 10 Apr 13:48:58 2016
@@ -28,8 +28,8 @@
 #                 defined in this file, or an existing system utility
 #
 #
-#   atime:        Time in seconds before triggering for ac/battery. If 0, do not
-#   btime         trigger in this mode. If 1, trigger when user returns from
+#   atime:        Time in seconds before triggering for ac/battery. If x, do not
+#   btime         trigger in this mode. If 0, trigger when user returns from
 #                 being idle
 #
 #   sensitive:    true:  function does session management (logout, suspend,
@@ -141,18 +141,20 @@ while :; do
             timeout=$btime
         fi
 
-        # special cases: timeout=0 means skip
-        #                timeout=1 means only run if user has just moved
-        [ "$timeout" -eq 0 ] && continue
-        if [[ "$timer" -eq "$timeout" && "$timeout" -ne 1 ||
-              "$timer" -eq 0 && "$timeout" -eq 1 &&
-              "$idle" == "false" && "$idle" != "$idle_last" ]]; then
-
-            if [ "${sensitive,,}" == "false" ] || safe_to_sleep $timeout; then
-                stderr "At time $timer: executing " $function $args
-                $function $args &
-            fi
-        fi
+        # special cases: timeout=x means skip
+        #                timeout=0 means only run if user has just moved
+        case $timeout in
+            [Xx]) continue ;;
+            0) [[ "$idle" == "false" && "$idle" != "$idle_last" ]] || continue ;&
+            *)
+                if [[ "$timer" -eq "$timeout" && "$timeout" -ne 1 ]]; then
+                    if [ "${sensitive,,}" == "false" ] || safe_to_sleep $timeout
+                    then
+                        stderr "At time $timer: executing " $function $args
+                        $function $args &
+                    fi
+                fi
+        esac
     done <<<"$RULES"
 
     sleep 1
