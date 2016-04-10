@@ -1,0 +1,28 @@
+# this table defines rules for different power modes.
+
+# function:     function to execute when rule is met. this can be a function
+#               defined in `.config/simon/functions.sh', or an existing system
+#               utility
+#
+#
+# atime:        time in seconds before triggering for ac/battery. if 0, do not
+# btime         trigger in this mode. if 1, trigger when user returns from
+#               being idle
+#
+# sensitive:    true:  function does session management (logout, suspend,
+#                      poweroff etc)
+#               false: otherwise
+#
+# args:         arguments to pass to the function. can only be plaintext, but
+#               you get to write the functions, so, you can make this as
+#               powerful as you want.
+
+# function			btime	actime	sensitive	args...
+
+increase_backlight	0		1		false		100
+increase_backlight	1		0		false		75
+reduce_backlight	10		0		false		30
+reduce_backlight	30		0		false		10
+reduce_backlight	0		300		false		50
+backlight_off		60		600		false
+suspend				120		600		true

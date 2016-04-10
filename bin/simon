@@ -1,0 +1,170 @@
+#!/bin/bash
+#
+# program: simon
+# version: 0.2
+# author: jamie bayne
+# email: jtbayne@gmail.com
+# date: Sun 10 Apr 13:48:58 2016
+#
+# description:
+#
+#   simon - System Idle MONitor
+#
+#   This is a small program for managing laptop screen brightness and sleeps
+#   after some idle time, based on whether the laptop is on AC or battery power.
+#
+#   Supports arbitrary actions with different times for AC/battery via a
+#   profile file the path to which is set in $HOME/.config/simon/config.sh
+#
+#   The profile rules table has the following form:
+#
+#       function		btime	atime	sensitive	args...
+#       darken_screen	60		600		0			10	30
+#       turn_off_screen	90		600		0
+#       suspend			0		300		1
+#       hibernate		300		0		1
+#
+#   function:     Function to execute when rule is met. This can be a function
+#                 defined in this file, or an existing system utility
+#
+#
+#   atime:        Time in seconds before triggering for ac/battery. If 0, do not
+#   btime         trigger in this mode. If 1, trigger when user returns from
+#                 being idle
+#
+#   sensitive:    true:  function does session management (logout, suspend,
+#                        poweroff etc)
+#                 false: otherwise
+#
+#   args:         Arguments to pass to the function. Can only be plaintext, but
+#                 you get to write the functions, so, you can make this as
+#                 powerful as you want.
+#
+#   Any number of tabs or spaces delimit fields. Anything following a # is
+#   treated as a comment.
+#
+#   You can add additional functions to `$HOME/.config/simon/functions.sh'
+#   or use any program on the system path.
+#
+#   Run simon as yourself at startup, e.g. by putting it in your path and adding
+#   the line
+#
+#       simon &
+#
+#   to your `.xinitrc'.
+#
+#   simon uses sysfs/procfs where possible, but depends on systemd for avoiding
+#   conflicts with other sleeps - this shouldn't be too hard to swap out if
+#   your system is a magical unicorn and hence doesn't use systemd.
+#
+#   Should work out of the box for: my laptop :)
+#
+#   This program was based on a script posted by user rkwurth on the #! forums:
+#   http://crunchbang.org/forums/viewtopic.php?id=26447
+
+##########################
+## setup
+##########################
+set -eu
+readonly PROGNAME="$0"
+function stderr() {
+    echo $PROGNAME: $@ >&2
+}
+if [ "$USER" == "root" ]; then
+    stderr "DO NOT RUN AS ROOT YOU WILL DIE"
+    exit 1
+fi
+
+readonly CONF_DIR="$HOME/.config/simon"
+source "${CONF_DIR}/config.sh"
+source "${CONF_DIR}/functions.sh"
+readonly RULES="$(sed -E 's/#.*//;/^[[:space:]]*$/d' "${CONF_DIR}/${PROFILE}")"
+
+##########################
+## begin program
+##########################
+
+## system status
+
+function on_ac_power()
+{ # report ac status
+    [ "$(cat $SYSFS_AC_STATUS_FILE)" == "$AC" ]
+}
+
+function have_resumed_within()
+{ # report if the system woke up from sleep within timeout seconds before now
+    local timeout="$1"
+    journalctl --since="-${timeout}s" | grep -q "System resumed"
+}
+
+function count_io_interrupts()
+{ # extract number of CPU io interrupts reported by linux kernel
+    grep "$INTERRUPT_IO_CLASS" "$PROCFS_INTERRUPT_FILE" | awk '{ print $2 }'
+}
+
+function safe_to_sleep()
+{ # if this function returns false, TIMEOUT_ACTION will not execute
+    local timeout="$1"
+
+    # if any of the keep-alive progs are open
+    for proc_name in $KEEPALIVE_PROCS; do
+        if pgrep $proc_name; then
+            stderr "process $proc_name running"
+            return 1
+        fi
+    done
+
+    # if our timeout is 0 seconds or we just woke up from sleep
+    if have_resumed_within $timeout; then
+        return 1
+    fi
+}
+
+
+timer=0
+interrupts_last=$(count_io_interrupts)
+idle=false
+idle_last="$idle"
+
+stderr "Read profile:"
+while read -r function btime atime sensitive args; do
+    stderr "<$function> <$btime> <$atime> <$sensitive> <$args>"
+done<<<"$RULES"
+
+while :; do
+    stderr $timer
+
+    while read -r function btime atime sensitive args; do
+        if on_ac_power; then
+            timeout=$atime
+        else
+            timeout=$btime
+        fi
+
+        # special cases: timeout=0 means skip
+        #                timeout=1 means only run if user has just moved
+        [ "$timeout" -eq 0 ] && continue
+        if [[ "$timer" -eq "$timeout" && "$timeout" -ne 1 ||
+              "$timer" -eq 0 && "$timeout" -eq 1 &&
+              "$idle" == "false" && "$idle" != "$idle_last" ]]; then
+
+            if [ "${sensitive,,}" == "false" ] || safe_to_sleep $timeout; then
+                stderr "At time $timer: executing " $function $args
+                $function $args &
+            fi
+        fi
+    done <<<"$RULES"
+
+    sleep 1
+    ((++timer))
+    interrupts=$(count_io_interrupts)
+    if [ "$interrupts" == "$interrupts_last" ]; then
+        idle_last="$idle"
+        idle=true
+    else
+        interrupts_last="$interrupts"
+        idle_last="$idle"
+        idle=false
+        timer=0
+    fi
+done
