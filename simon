@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Seconds of inactivity until sleep. 0 to disable sleep
+bat_time_out=300
+ac_time_out=0
+# Programs worth staying up for :)
+excluded_progs="shutdown mpg123"
+
+# The target may depend on your system. i8042 is mouse and keyboard on mine (Thinkpad x230)
+log=/proc/interrupts
+target=i8042
+
+check_ac()
+{ # Adjust or disable timeout if plugged in
+	on_ac_power
+	if [ $? == 0 ]; then
+		time_out=$ac_time_out
+	else
+		time_out=$bat_time_out
+	fi
+}
+
+insomnia() 
+{ # If any special processes are running, echo true
+	for i in $excluded_progs ; do 
+		if [ `pgrep $i` ]; then 
+			echo true 
+			return 
+		fi 
+	done 
+}  
+
+check_insomnia()
+{ # If no special processes are running, echo false
+	insomnia && [ -z `insomnia` ] && echo false
+}
+
+measure_activity() 
+{ # Do all the stuff...
+	count=$1
+	check_ac
+	# Do the actual checking for key/mouse interrupts
+	interrupts_start=`grep $target $log | awk '{ print $2 }'`
+	interrupts_stop=`sleep 1 && grep $target $log | awk '{ print $2 }'`
+
+	if [ "$interrupts_start" == "$interrupts_stop" ] ; then
+		((count++))
+		if [ $count -eq $time_out ] && [ `check_insomnia` == "false" ] ; then
+			/usr/sbin/pm-suspend
+			measure_activity 0
+		else
+			measure_activity $count
+		fi
+	else
+		measure_activity
+	fi
+}
+
+measure_activity 0 & # I've tacked an & at the end for daemon-like behavior
