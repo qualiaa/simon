@@ -47,10 +47,11 @@ An example profile file looks like this
 
     # a comment
     #function       btime   atime   sensitive   args...
+    reset_screen    0       0       false
     darken_screen   60      600     false       10  30
     turn_off_screen 90      600     false
-    suspend         0       300     true
-    hibernate       300     0       true
+    suspend         x       300     true
+    hibernate       300     x       true
 
 * `function`:    Function to execute when rule is met. This can be a function
                  defined in this file, or an existing system utility
@@ -71,7 +72,7 @@ An example profile file looks like this
 Any number of tabs or spaces delimit fields. Anything following a `#` is
 treated as a comment.
 
-# Credit
+## Credit
 
 This program was based on a script posted by user rkwurth on the `#!` forums:
 http://crunchbang.org/forums/viewtopic.php?id=26447
